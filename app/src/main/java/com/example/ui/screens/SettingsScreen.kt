@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ColorLens
@@ -35,10 +36,12 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -73,7 +76,9 @@ import com.example.model.AppRank
 import com.example.model.AppSettings
 import com.example.model.UserProfile
 import com.example.ui.components.GlassCard
+import com.example.ui.components.InviteWebSheet
 import com.example.ui.components.LocalCustomFrames
+import com.example.ui.components.NEXOLIVE_APK_VERSION_LABEL
 import com.example.ui.components.NeonGradientButton
 import com.example.ui.components.NeonOutlinedButton
 import com.example.ui.components.TxlLogoMark
@@ -107,9 +112,10 @@ fun SettingsScreen(
     onPickAppBackgroundUri: (Uri) -> Unit,
     onResetAppBackground: () -> Unit,
     onAssignAppRank: (String, AppRank) -> Unit,
-    onUnlockDeveloperMode: (code: String, onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit = { _, _, _ -> },
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> },
     onBanUser: (String, String) -> Unit = { _, _ -> },
     onUnbanUser: (String) -> Unit = {},
+    onBack: (() -> Unit)? = null,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -119,6 +125,7 @@ fun SettingsScreen(
     val customFrames = LocalCustomFrames.current
     var activeTileKey by rememberSaveable { mutableStateOf<String?>(null) }
     var showGrantSheet by rememberSaveable { mutableStateOf(false) }
+    var showInviteSheet by rememberSaveable { mutableStateOf(false) }
 
     val appBgPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -159,10 +166,24 @@ fun SettingsScreen(
         ) {
             item(span = { GridItemSpan(2) }) {
                 Column {
-                    TxlLogoMark(compact = true)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onBack != null) {
+                            IconButton(
+                                onClick = onBack,
+                                modifier = Modifier.size(44.dp).testTag("settings_back_button")
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = TextPrimary)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        TxlLogoMark(compact = true)
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
                     Text("Configuración", style = MaterialTheme.typography.headlineLarge, color = TextPrimary)
-                    Text("Personaliza tu experiencia y estudio de NexoLive", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Text("Personaliza tu experiencia • $NEXOLIVE_APK_VERSION_LABEL", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     Spacer(modifier = Modifier.height(6.dp))
                 }
             }
@@ -197,9 +218,16 @@ fun SettingsScreen(
             }
         }
 
+        NeonOutlinedButton(
+            text = "🌐 Invitar al mundo por Sitio Web ($NEXOLIVE_APK_VERSION_LABEL)",
+            onClick = { showInviteSheet = true },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            testTag = "settings_invite_web_button"
+        )
+
         if (user?.canManageVerifications == true) {
             NeonOutlinedButton(
-                text = "Entregar Verificados (Desarrollador)",
+                text = "Panel del Dueño: Verificados, Monedas y Baneos",
                 onClick = { showGrantSheet = true },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 testTag = "settings_grant_badges_button"
@@ -219,11 +247,22 @@ fun SettingsScreen(
         }
     }
 
+    if (showInviteSheet) {
+        InviteWebSheet(
+            inviterUsername = user?.username,
+            currentWebUrl = settings.inviteWebUrl,
+            canEditGlobalUrl = user?.isPrimaryVerifiedOwner == true,
+            onSaveWebUrl = { newUrl -> onUpdateSettings { it.copy(inviteWebUrl = newUrl) } },
+            onDismiss = { showInviteSheet = false }
+        )
+    }
+
     if (showGrantSheet && user?.canManageVerifications == true) {
         GrantVerificationSheet(
             users = allUsers,
             currentUserId = user.id,
             onAssignRank = onAssignAppRank,
+            onGrantCoins = onGrantCoins,
             onBanUser = onBanUser,
             onUnbanUser = onUnbanUser,
             onDismiss = { showGrantSheet = false }
@@ -246,73 +285,31 @@ fun SettingsScreen(
                         val activeFrameTitle = user?.let { u ->
                             customFrames[u.avatarFrameId]?.title ?: u.avatarFrame.displayName
                         }.orEmpty()
-                        var tapCount by rememberSaveable { mutableIntStateOf(0) }
-                        var showDevUnlock by rememberSaveable { mutableStateOf(false) }
-                        var devCode by rememberSaveable { mutableStateOf("") }
-                        var devFeedback by remember { mutableStateOf<String?>(null) }
-                        var devIsError by remember { mutableStateOf(false) }
 
                         Text(
                             text = "Cuenta NexoLive",
                             style = MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier
-                                .clickable {
-                                    tapCount += 1
-                                    if (tapCount >= 5) showDevUnlock = true
-                                }
-                                .testTag("account_sheet_title")
+                            modifier = Modifier.testTag("account_sheet_title")
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("Usuario: ${user?.username.orEmpty()}", color = TextPrimary)
-                        Text("Correo: ${user?.email.orEmpty()}", color = TextSecondary)
+                        Text("Correo Google verificado: ${user?.email.orEmpty()}", color = TextSecondary)
                         Text("Marco activo: $activeFrameTitle", color = NeonPink)
+                        Text(
+                            text = if (user?.hasInfiniteCoins == true) "Monedas: ∞ (Dueño único)" else "Monedas: 💎 ${user?.coinsCount ?: 0}",
+                            color = NeonCyan
+                        )
 
-                        if (user?.canManageVerifications == true) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Modo desarrollador activo: puedes cambiar verificados sin perder permisos.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = SuccessGreen
-                            )
-                        } else if (showDevUnlock) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            OutlinedTextField(
-                                value = devCode,
-                                onValueChange = { devCode = it },
-                                label = { Text("Código de desarrollador") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().testTag("developer_unlock_input")
-                            )
-                            if (!devFeedback.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = devFeedback!!,
-                                    color = if (devIsError) DangerRose else SuccessGreen,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            NeonGradientButton(
-                                text = "Activar acceso",
-                                enabled = devCode.isNotBlank(),
-                                onClick = {
-                                    onUnlockDeveloperMode(
-                                        devCode,
-                                        {
-                                            devIsError = false
-                                            devFeedback = "Acceso de desarrollador activado."
-                                        },
-                                        { msg ->
-                                            devIsError = true
-                                            devFeedback = msg
-                                        }
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                testTag = "developer_unlock_submit"
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (user?.isPrimaryVerifiedOwner == true) {
+                                "Cuenta maestra verificada: solo tú posees controles globales, insignias y regalo de monedas."
+                            } else {
+                                "Cuenta personal verificada por Google. Nadie más puede entrar a tu sesión ni al panel del dueño."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (user?.isPrimaryVerifiedOwner == true) SuccessGreen else TextSecondary
+                        )
                     }
                     "privacy" -> {
                         Text("Privacidad y chat", style = MaterialTheme.typography.headlineMedium)

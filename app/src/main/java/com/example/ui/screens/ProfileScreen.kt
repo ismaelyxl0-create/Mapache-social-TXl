@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -93,6 +95,7 @@ import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.NeonPink
 import com.example.ui.theme.NeonPurple
 import com.example.ui.theme.NeonPurpleLight
+import com.example.ui.theme.RoleAdminGold
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.SurfaceCard
 import com.example.ui.theme.SurfaceElevated
@@ -126,7 +129,11 @@ fun ProfileScreen(
         onDone: () -> Unit
     ) -> Unit,
     onDeleteCustomFrame: (String) -> Unit,
+    onBuyCustomFrame: (String) -> Unit = {},
     onAssignAppRank: (targetUserId: String, newRank: AppRank) -> Unit,
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> },
+    onOpenStore: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onExploreCircles: () -> Unit,
     onOpenCommunityVoice: (String) -> Unit,
     onBanUser: (targetUserId: String, reason: String) -> Unit = { _, _ -> },
@@ -141,12 +148,16 @@ fun ProfileScreen(
     var pendingPngTitle by rememberSaveable { mutableStateOf("") }
 
     val pngPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             pendingPngUri = uri
             pendingPngTitle = ""
         }
+    }
+
+    val publishedByMeCount = remember(customFrames, user.id) {
+        customFrames.count { it.creatorId == user.id }
     }
 
     val activeFrameName = remember(user.avatarFrameId, user.avatarFrame, customFrames) {
@@ -206,6 +217,20 @@ fun ProfileScreen(
                         color = NeonCyan
                     )
                 }
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(48.dp)
+                        .testTag("open_settings_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Configuración y cerrar sesión",
+                        tint = TextPrimary
+                    )
+                }
             }
         }
 
@@ -254,6 +279,36 @@ fun ProfileScreen(
                     if (user.appRank != AppRank.NONE && user.canManageVerifications) {
                         Spacer(modifier = Modifier.height(6.dp))
                         AppRankPill(rank = user.appRank)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = RoleAdminGold.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, RoleAdminGold.copy(alpha = 0.65f))
+                        ) {
+                            Text(
+                                text = if (user.hasInfiniteCoins) "💎 ∞ Monedas" else "🪙 ${user.coinsCount} monedas",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = RoleAdminGold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                        val donorTier = user.donorTier
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(donorTier.colorHex).copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, Color(donorTier.colorHex).copy(alpha = 0.6f))
+                        ) {
+                            Text(
+                                text = "${donorTier.emoji} Nv.${donorTier.level} ${donorTier.title}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(donorTier.colorHex),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -358,6 +413,48 @@ fun ProfileScreen(
             }
         }
 
+        // Store & Cupos Showcase Card
+        item {
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("profile_open_store_card"),
+                borderColor = NeonPink.copy(alpha = 0.7f),
+                onClick = onOpenStore
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = NeonPurple.copy(alpha = 0.28f),
+                        border = BorderStroke(1.dp, NeonPink),
+                        modifier = Modifier.size(46.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.Storefront, contentDescription = null, tint = NeonPink)
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "🏪 Tienda de Creaciones VozMundo",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Cupo: $publishedByMeCount/${user.effectiveMaxFrameSlots} • Publica y gana 80% (${user.creatorRank.title})",
+                            fontSize = 11.sp,
+                            color = NeonCyan
+                        )
+                    }
+                    Text("Abrir →", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonPink)
+                }
+            }
+        }
+
         // Avatar Frames Showcase + Free Studio + PNG Publisher
         item {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -378,7 +475,7 @@ fun ProfileScreen(
                             border = BorderStroke(1.dp, SuccessGreen.copy(alpha = 0.5f))
                         ) {
                             Text(
-                                text = "100% Gratis",
+                                text = "Personal o Tienda",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = SuccessGreen,
@@ -421,9 +518,7 @@ fun ProfileScreen(
                                 .weight(1f)
                                 .height(44.dp)
                                 .clickable {
-                                    pngPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
+                                    pngPickerLauncher.launch(arrayOf("image/png", "image/*"))
                                 }
                                 .testTag("publish_png_frame_button")
                         ) {
@@ -460,14 +555,18 @@ fun ProfileScreen(
                                                 shape = RoundedCornerShape(16.dp)
                                             )
                                             .clickable {
-                                                onSaveCustomization(
-                                                    user.username,
-                                                    user.bio,
-                                                    user.customStatus,
-                                                    custom.id,
-                                                    user.avatarUri,
-                                                    user.presetAvatarKey
-                                                ) {}
+                                                if (custom.priceCoins > 0 && custom.creatorId != user.id && !user.hasInfiniteCoins) {
+                                                    onBuyCustomFrame(custom.id)
+                                                } else {
+                                                    onSaveCustomization(
+                                                        user.username,
+                                                        user.bio,
+                                                        user.customStatus,
+                                                        custom.id,
+                                                        user.avatarUri,
+                                                        user.presetAvatarKey
+                                                    ) {}
+                                                }
                                             }
                                             .padding(10.dp)
                                             .testTag("custom_frame_${custom.id}")
@@ -490,9 +589,11 @@ fun ProfileScreen(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = if (custom.frameType == "PNG") "PNG • Gratis" else "Estudio • ${custom.creatorName}",
+                                            text = if (custom.priceCoins > 0) "💎 ${custom.priceCoins} • ${custom.creatorName}"
+                                            else if (custom.frameType == "PNG") "PNG • Gratis"
+                                            else "Estudio • ${custom.creatorName}",
                                             fontSize = 9.sp,
-                                            color = TextSecondary,
+                                            color = if (custom.priceCoins > 0) RoleAdminGold else TextSecondary,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -682,6 +783,7 @@ fun ProfileScreen(
             users = allUsers,
             currentUserId = user.id,
             onAssignRank = onAssignAppRank,
+            onGrantCoins = onGrantCoins,
             onBanUser = onBanUser,
             onUnbanUser = onUnbanUser,
             onDismiss = { showGrantSheet = false }
@@ -857,6 +959,7 @@ fun GrantVerificationSheet(
     users: List<UserProfile>,
     currentUserId: String? = null,
     onAssignRank: (targetUserId: String, newRank: AppRank) -> Unit,
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> },
     onBanUser: (targetUserId: String, reason: String) -> Unit = { _, _ -> },
     onUnbanUser: (targetUserId: String) -> Unit = {},
     onDismiss: () -> Unit
@@ -874,9 +977,9 @@ fun GrantVerificationSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Text("Centro de Verificados y Baneos", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
+            Text("Panel del Dueño: Verificados, Monedas y Baneos", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
             Text(
-                text = "Solo Desarrollador • Verificados + Baneo por actividad ilegal",
+                text = "Solo Dueño • Insignias, regalo de monedas y seguridad",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
@@ -939,7 +1042,7 @@ fun GrantVerificationSheet(
                                     }
                                 }
                                 Text(
-                                    text = if (target.isBanned) "Bloqueado: ${target.banReason ?: "Actividad ilegal"}" else target.appRank.badgeTitle,
+                                    text = if (target.isBanned) "Bloqueado: ${target.banReason ?: "Actividad ilegal"}" else "${target.appRank.badgeTitle} • ${if (target.hasInfiniteCoins) "∞ 💎" else "${target.coinsCount} 💎"}",
                                     fontSize = 11.sp,
                                     color = if (target.isBanned) DangerRose else NeonPurpleLight
                                 )
@@ -949,6 +1052,7 @@ fun GrantVerificationSheet(
                         com.example.ui.components.RankVerificationSelectorGrid(
                             currentRank = target.appRank,
                             targetUserId = target.id,
+                            isSelf = isSelf,
                             onSelectRank = { chosen ->
                                 onAssignRank(target.id, chosen)
                                 lastChangeFeedback = if (chosen == AppRank.NONE) {
@@ -958,6 +1062,33 @@ fun GrantVerificationSheet(
                                 }
                             }
                         )
+                        if (!isSelf && !isPrimaryOwner) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(100, 500, 2000).forEach { giftAmt ->
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = RoleAdminGold.copy(alpha = 0.16f),
+                                        border = BorderStroke(1.dp, RoleAdminGold.copy(alpha = 0.7f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(36.dp)
+                                            .clickable {
+                                                onGrantCoins(target.id, giftAmt)
+                                                lastChangeFeedback = "+$giftAmt monedas regaladas a ${target.username}"
+                                            }
+                                            .testTag("sheet_grant_coins_${giftAmt}_${target.id}")
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text("+$giftAmt 💎", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = RoleAdminGold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if (!isSelf && !isPrimaryOwner) {
                             Spacer(modifier = Modifier.height(8.dp))
                             if (target.isBanned) {

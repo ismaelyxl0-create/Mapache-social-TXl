@@ -377,7 +377,8 @@ fun FramedAvatar(
         label = "pulse_scale"
     )
 
-    val outerSize = size + 16.dp
+    val isPngOverlay = resolvedCustom != null && resolvedCustom.frameType == "PNG" && !resolvedCustom.pngPath.isNullOrBlank()
+    val outerSize = if (isPngOverlay) size + 28.dp else size + 16.dp
     Box(
         modifier = modifier.size(outerSize),
         contentAlignment = Alignment.Center
@@ -507,9 +508,10 @@ fun FramedAvatar(
             }
         }
 
-        // Actual user image (uploaded from gallery or preset drawable)
+        // Actual user image (scaled slightly inside transparent PNG frame cutout)
+        val innerAvatarSize = if (isPngOverlay) size * 0.84f else size
         val imageModifier = Modifier
-            .size(size)
+            .size(innerAvatarSize)
             .clip(CircleShape)
             .background(SurfaceElevated)
 
@@ -530,13 +532,13 @@ fun FramedAvatar(
             )
         }
 
-        // Transparent PNG frame overlay on top of the circular user image
-        if (resolvedCustom != null && resolvedCustom.frameType == "PNG" && !resolvedCustom.pngPath.isNullOrBlank()) {
+        // Transparent PNG frame overlay on top (supports oval/ornate character & emblem frames)
+        if (isPngOverlay && resolvedCustom != null) {
             AsyncImage(
-                model = File(resolvedCustom.pngPath),
+                model = File(resolvedCustom.pngPath!!),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(size + 16.dp)
+                modifier = Modifier.size(size + 26.dp)
             )
         }
     }
@@ -842,7 +844,9 @@ fun UserProfilePreviewSheet(
     onKick: (() -> Unit)? = null,
     onAssignAppRank: ((AppRank) -> Unit)? = null,
     onBanUser: ((String) -> Unit)? = null,
-    onUnbanUser: (() -> Unit)? = null
+    onUnbanUser: (() -> Unit)? = null,
+    onFollowUser: (() -> Unit)? = null,
+    onGrantCoins: ((Int) -> Unit)? = null
 ) {
     val canManageRanks = currentUserIsDeveloper || currentUserRank == AppRank.OWNER
     val canBanThisUser = canManageRanks && !isCurrentUser &&
@@ -888,11 +892,36 @@ fun UserProfilePreviewSheet(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val tier = user.donorTier
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color(tier.colorHex).copy(alpha = 0.18f),
+                    border = BorderStroke(1.dp, Color(tier.colorHex).copy(alpha = 0.65f))
+                ) {
+                    Text(
+                        text = "${tier.emoji} Nv.${tier.level} ${tier.title}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(tier.colorHex),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                    )
+                }
                 if (canManageRanks && user.appRank != AppRank.NONE) {
                     AppRankPill(rank = user.appRank)
                 }
                 if (roleInRoom != null) {
                     RoleBadge(role = roleInRoom)
+                }
+            }
+            if (!isCurrentUser && onFollowUser != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onFollowUser,
+                    border = BorderStroke(1.dp, NeonPink),
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.height(38.dp)
+                ) {
+                    Text("+ Seguir emisor", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonPink)
                 }
             }
             if (user.customStatus.isNotBlank()) {
@@ -940,8 +969,47 @@ fun UserProfilePreviewSheet(
                 RankVerificationSelectorGrid(
                     currentRank = user.appRank,
                     targetUserId = user.id,
+                    isSelf = isCurrentUser,
                     onSelectRank = onAssignAppRank
                 )
+            }
+
+            // Owner-only coin gift controls (Owner has infinite coins and can fund creators/users)
+            if (canManageRanks && !isCurrentUser && onGrantCoins != null) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "🎁 Regalar monedas (Dueño)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = RoleAdminGold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(100, 500, 2000).forEach { giftAmt ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = RoleAdminGold.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, RoleAdminGold.copy(alpha = 0.7f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onGrantCoins(giftAmt) }
+                                .testTag("owner_grant_coins_${giftAmt}_${user.id}")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "+$giftAmt 💎",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = RoleAdminGold
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Role-based moderation controls for Admin / Co-Admin
@@ -1121,18 +1189,31 @@ fun UserProfilePreviewSheet(
 fun RankVerificationSelectorGrid(
     currentRank: AppRank,
     targetUserId: String,
+    isSelf: Boolean = false,
     onSelectRank: (AppRank) -> Unit
 ) {
-    val rows = listOf(
+    val rows = if (isSelf) {
         listOf(
-            AppRank.OWNER to "Negro (Dueño)",
-            AppRank.MODERATOR to "Rojo (Mod)"
-        ),
-        listOf(
-            AppRank.INFLUENCER to "Azul (Influencer)",
-            AppRank.NONE to "Quitar"
+            listOf(
+                AppRank.OWNER to "Negro (Dueño)",
+                AppRank.MODERATOR to "Rojo (Mod)"
+            ),
+            listOf(
+                AppRank.INFLUENCER to "Azul (Influencer)",
+                AppRank.NONE to "Quitar"
+            )
         )
-    )
+    } else {
+        listOf(
+            listOf(
+                AppRank.MODERATOR to "Rojo (Mod)",
+                AppRank.INFLUENCER to "Azul (Influencer)"
+            ),
+            listOf(
+                AppRank.NONE to "Quitar"
+            )
+        )
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)

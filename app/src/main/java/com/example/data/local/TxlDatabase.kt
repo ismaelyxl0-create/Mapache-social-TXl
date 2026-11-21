@@ -22,7 +22,7 @@ import java.security.MessageDigest
         PostEntity::class,
         PostCommentEntity::class
     ],
-    version = 7,
+    version = 10,
     exportSchema = false
 )
 abstract class TxlDatabase : RoomDatabase() {
@@ -63,6 +63,50 @@ abstract class TxlDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN emailVerified INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN coinsCount INTEGER NOT NULL DEFAULT 5000")
+                db.execSQL("ALTER TABLE users ADD COLUMN giftsReceivedCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN donorExp INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN donorLevel INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE users ADD COLUMN totalCoinsDonated INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN dailyStreakDay INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN lastDailyCheckInAtMillis INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN followHostsProgress INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN watchLiveMinutesProgress INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN gameCoinsEarnedProgress INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN giftCoinsSentProgress INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN claimedTaskIds TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE users ADD COLUMN inventoryJson TEXT NOT NULL DEFAULT '{}'")
+                db.execSQL("ALTER TABLE users ADD COLUMN mePlusMember INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN lastMePlusDrawAtMillis INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN audioDataB64 TEXT")
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN remoteId TEXT")
+                db.execSQL("ALTER TABLE notifications ADD COLUMN remoteId TEXT")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE custom_frames ADD COLUMN priceCoins INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN maxFrameSlots INTEGER NOT NULL DEFAULT 10")
+                db.execSQL("ALTER TABLE users ADD COLUMN creatorSalesCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN creatorEarningsCoins INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN favoriteFrameIdsCsv TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE custom_frames ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE custom_frames ADD COLUMN category TEXT NOT NULL DEFAULT 'Marco de perfil'")
+                db.execSQL("ALTER TABLE custom_frames ADD COLUMN isFeatured INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE custom_frames ADD COLUMN salesCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE custom_frames ADD COLUMN favoriteCount INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): TxlDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -70,7 +114,7 @@ abstract class TxlDatabase : RoomDatabase() {
                     TxlDatabase::class.java,
                     "txlsocial_db"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +20,8 @@ import java.util.UUID
 
 data class RecordedAudioResult(
     val filePath: String,
-    val durationMs: Long
+    val durationMs: Long,
+    val audioDataB64: String? = null
 )
 
 class VoiceNoteRecorder(private val context: Context) {
@@ -49,8 +51,8 @@ class VoiceNoteRecorder(private val context: Context) {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioSamplingRate(44100)
-                setAudioEncodingBitRate(96000)
+                setAudioSamplingRate(16000)
+                setAudioEncodingBitRate(24000)
                 setOutputFile(file.absolutePath)
                 prepare()
                 start()
@@ -91,7 +93,13 @@ class VoiceNoteRecorder(private val context: Context) {
             _isRecording.value = false
             _elapsedMs.value = 0L
             if (file != null && file.exists() && file.length() > 0L) {
-                Result.success(RecordedAudioResult(file.absolutePath, elapsed))
+                val bytes = file.readBytes()
+                val b64 = if (bytes.size <= 240_000) {
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                } else {
+                    null
+                }
+                Result.success(RecordedAudioResult(file.absolutePath, elapsed, b64))
             } else {
                 file?.delete()
                 Result.failure(IllegalStateException("La nota de voz está vacía. Intenta grabar un poco más."))
@@ -114,14 +122,8 @@ class VoiceNoteRecorder(private val context: Context) {
     private fun cleanupRecorderOnly() {
         timerJob?.cancel()
         timerJob = null
-        try {
-            mediaRecorder?.reset()
-        } catch (_: Exception) {
-        }
-        try {
-            mediaRecorder?.release()
-        } catch (_: Exception) {
-        }
+        try { mediaRecorder?.reset() } catch (_: Exception) {}
+        try { mediaRecorder?.release() } catch (_: Exception) {}
         mediaRecorder = null
     }
 
@@ -130,30 +132,18 @@ class VoiceNoteRecorder(private val context: Context) {
         _elapsedMs.value = 0L
         timerJob?.cancel()
         timerJob = null
-        try {
-            mediaRecorder?.stop()
-        } catch (_: Exception) {
-        }
-        try {
-            mediaRecorder?.reset()
-        } catch (_: Exception) {
-        }
-        try {
-            mediaRecorder?.release()
-        } catch (_: Exception) {
-        }
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        try { mediaRecorder?.reset() } catch (_: Exception) {}
+        try { mediaRecorder?.release() } catch (_: Exception) {}
         mediaRecorder = null
         if (deleteFile) {
-            try {
-                outputFile?.delete()
-            } catch (_: Exception) {
-            }
+            try { outputFile?.delete() } catch (_: Exception) {}
         }
         outputFile = null
     }
 }
 
-class VoiceNotePlayer {
+class VoiceNotePlayer(private val context: Context? = null) {
     private val _playingMessageId = MutableStateFlow<Long?>(null)
     val playingMessageId: StateFlow<Long?> = _playingMessageId.asStateFlow()
 
@@ -165,7 +155,8 @@ class VoiceNotePlayer {
 
     fun togglePlayback(
         messageId: Long,
-        audioPath: String,
+        audioPath: String?,
+        audioDataB64: String? = null,
         scope: CoroutineScope,
         onError: (String) -> Unit
     ) {
@@ -175,18 +166,16 @@ class VoiceNotePlayer {
         }
         stop()
 
-        val file = File(audioPath)
-        if (!file.exists() || !file.isFile) {
-            onError("El archivo de audio ya no está disponible.")
+        val resolvedFile = resolvePlayableFile(messageId, audioPath, audioDataB64)
+        if (resolvedFile == null || !resolvedFile.exists() || !resolvedFile.isFile) {
+            onError("El archivo de audio aún se está sincronizando o no está disponible.")
             return
         }
 
         try {
             val player = MediaPlayer().apply {
-                setDataSource(file.absolutePath)
-                setOnCompletionListener {
-                    stop()
-                }
+                setDataSource(resolvedFile.absolutePath)
+                setOnCompletionListener { stop() }
                 setOnErrorListener { _, _, _ ->
                     stop()
                     onError("No se pudo reproducir esta nota de voz.")
@@ -215,19 +204,41 @@ class VoiceNotePlayer {
         }
     }
 
+    private fun resolvePlayableFile(
+        messageId: Long,
+        audioPath: String?,
+        audioDataB64: String?
+    ): File? {
+        if (!audioPath.isNullOrBlank()) {
+            val localFile = File(audioPath)
+            if (localFile.exists() && localFile.isFile && localFile.length() > 0L) {
+                return localFile
+            }
+        }
+        val ctx = context
+        if (!audioDataB64.isNullOrBlank() && ctx != null) {
+            return runCatching {
+                val raw = audioDataB64.substringAfter("base64,", audioDataB64).trim()
+                val decoded = Base64.decode(raw, Base64.NO_WRAP)
+                if (decoded.isEmpty()) return null
+                val cacheDir = File(ctx.cacheDir, "remote_voice_notes").apply { mkdirs() }
+                val cached = File(cacheDir, "msg_${messageId}.m4a")
+                if (!cached.exists() || cached.length() != decoded.size.toLong()) {
+                    cached.writeBytes(decoded)
+                }
+                cached
+            }.getOrNull()
+        }
+        return null
+    }
+
     fun stop() {
         progressJob?.cancel()
         progressJob = null
         _playingMessageId.value = null
         _progress.value = 0f
-        try {
-            mediaPlayer?.stop()
-        } catch (_: Exception) {
-        }
-        try {
-            mediaPlayer?.release()
-        } catch (_: Exception) {
-        }
+        try { mediaPlayer?.stop() } catch (_: Exception) {}
+        try { mediaPlayer?.release() } catch (_: Exception) {}
         mediaPlayer = null
     }
 }

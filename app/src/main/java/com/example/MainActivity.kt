@@ -1,10 +1,11 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,24 +21,23 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.DynamicFeed
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DynamicFeed
+import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -62,18 +62,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -94,8 +98,9 @@ import com.example.ui.screens.GroupChatScreen
 import com.example.ui.screens.LoginScreen
 import com.example.ui.screens.NotificationsScreen
 import com.example.ui.screens.ProfileScreen
-import com.example.ui.screens.RegisterScreen
+import com.example.ui.screens.RewardsTasksScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.TiendaScreen
 import com.example.ui.screens.VoiceRoomScreen
 import com.example.ui.theme.DangerRose
 import com.example.ui.theme.NeonPink
@@ -110,10 +115,11 @@ import com.example.viewmodel.AuthViewModel
 import com.example.viewmodel.MainViewModel
 import com.example.viewmodel.RoomViewModel
 import com.example.viewmodel.TxlViewModelFactory
+import kotlinx.coroutines.launch
 
-private const val ROUTE_LOGIN = "login"
-private const val ROUTE_REGISTER = "register"
 private const val ROUTE_MAIN = "main"
+private const val ROUTE_STORE = "store"
+private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_VOICE_ROOM = "voice_room/{communityId}"
 private const val ROUTE_GROUP_CHAT = "group_chat/{communityId}"
 
@@ -125,9 +131,9 @@ private enum class MainTab(
     EXPLORE("En Vivo", Icons.Filled.Explore, Icons.Outlined.Explore),
     FEED("Clips", Icons.Filled.DynamicFeed, Icons.Outlined.DynamicFeed),
     BOTTLE("Botella", Icons.Filled.AutoAwesome, Icons.Outlined.AutoAwesome),
+    TASKS("Tareas", Icons.Filled.EmojiEvents, Icons.Outlined.EmojiEvents),
     NOTIFICATIONS("Alertas", Icons.Filled.Notifications, Icons.Outlined.Notifications),
-    PROFILE("Perfil", Icons.Filled.Person, Icons.Outlined.Person),
-    SETTINGS("Ajustes", Icons.Filled.Settings, Icons.Outlined.Settings)
+    PROFILE("Perfil", Icons.Filled.Person, Icons.Outlined.Person)
 }
 
 class MainActivity : ComponentActivity() {
@@ -135,57 +141,44 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = AppContainer(applicationContext)
+        val invitedBy = extractInviterFromIntent(intent)
         setContent {
             TXLsocialTheme {
-                TXLsocialRoot(container)
+                TXLsocialRoot(container, invitedBy)
             }
         }
+    }
+
+    private fun extractInviterFromIntent(intent: Intent?): String? {
+        val data = intent?.data ?: return null
+        return data.getQueryParameter("by")?.takeIf { it.isNotBlank() }
     }
 }
 
 @Composable
-private fun TXLsocialRoot(container: AppContainer) {
+private fun TXLsocialRoot(
+    container: AppContainer,
+    invitedBy: String?
+) {
     val authViewModel: AuthViewModel = viewModel(
         factory = TxlViewModelFactory(container.repository)
     )
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
-    val hasAnyUser by authViewModel.hasAnyUser.collectAsStateWithLifecycle()
     val authError by authViewModel.authError.collectAsStateWithLifecycle()
     val isBusy by authViewModel.isBusy.collectAsStateWithLifecycle()
 
     if (currentUser == null) {
-        val navController = rememberNavController()
-        val isFirstRegistration = hasAnyUser == false
-        NavHost(navController = navController, startDestination = ROUTE_LOGIN) {
-            composable(ROUTE_LOGIN) {
-                LoginScreen(
-                    errorMessage = authError,
-                    isBusy = isBusy,
-                    isFirstAccountPending = isFirstRegistration,
-                    onLoginClick = { id, pwd -> authViewModel.login(id, pwd) },
-                    onNavigateToRegister = {
-                        authViewModel.clearError()
-                        navController.navigate(ROUTE_REGISTER)
-                    }
-                )
-            }
-            composable(ROUTE_REGISTER) {
-                RegisterScreen(
-                    errorMessage = authError,
-                    isBusy = isBusy,
-                    isFirstAccountPending = isFirstRegistration,
-                    onRegisterClick = { u, e, p, c, terms -> authViewModel.register(u, e, p, c, terms) },
-                    onBackToLogin = {
-                        authViewModel.clearError()
-                        navController.popBackStack()
-                    }
-                )
-            }
-        }
+        LoginScreen(
+            errorMessage = authError,
+            isBusy = isBusy,
+            onGoogleIdToken = { idToken -> authViewModel.signInWithGoogleIdToken(idToken) },
+            onAuthError = { msg -> authViewModel.setAuthError(msg) },
+            onBusyChange = { busy -> authViewModel.setBusy(busy) }
+        )
     } else {
         val uid = currentUser!!.id
         key(uid) {
-            AuthenticatedShell(container = container, currentUserId = uid)
+            AuthenticatedShell(container = container, currentUserId = uid, invitedBy = invitedBy)
         }
     }
 }
@@ -193,8 +186,11 @@ private fun TXLsocialRoot(container: AppContainer) {
 @Composable
 private fun AuthenticatedShell(
     container: AppContainer,
-    currentUserId: String
+    currentUserId: String,
+    invitedBy: String? = null
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val mainViewModel: MainViewModel = viewModel(
         key = currentUserId,
         factory = TxlViewModelFactory(
@@ -216,8 +212,15 @@ private fun AuthenticatedShell(
     val posts by mainViewModel.posts.collectAsStateWithLifecycle()
     val statusBanner by mainViewModel.statusBanner.collectAsStateWithLifecycle()
     val pickedBottle by mainViewModel.pickedBottle.collectAsStateWithLifecycle()
+    val mePlusOutcome by mainViewModel.mePlusOutcome.collectAsStateWithLifecycle()
 
     val customFramesMap = remember(customFrames) { customFrames.associateBy { it.id } }
+
+    LaunchedEffect(invitedBy) {
+        if (!invitedBy.isNullOrBlank()) {
+            snackbarHostState.showSnackbar("¡Bienvenido a NexoLive! Te invitó @$invitedBy — búscalo en En Vivo.")
+        }
+    }
 
     LaunchedEffect(statusBanner) {
         if (!statusBanner.isNullOrBlank()) {
@@ -226,12 +229,22 @@ private fun AuthenticatedShell(
         }
     }
 
+    val performLogout: () -> Unit = {
+        scope.launch {
+            try {
+                CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+            } catch (_: Exception) {
+            }
+            mainViewModel.logout()
+        }
+    }
+
     if (user?.isBanned == true) {
         BannedAccountLockoutScreen(
             username = user!!.username,
             banReason = user?.banReason,
             settings = settings,
-            onLogout = { mainViewModel.logout() }
+            onLogout = performLogout
         )
         return
     }
@@ -351,8 +364,15 @@ private fun AuthenticatedShell(
                                             },
                                             onDeleteCommunity = { cid -> mainViewModel.deleteCommunity(cid) },
                                             onAssignAppRank = { targetId, rank -> mainViewModel.assignAppRank(targetId, rank) },
+                                            onGrantCoins = { targetId, amount -> mainViewModel.grantCoinsToUser(targetId, amount) },
                                             onBanUser = { targetId, reason -> mainViewModel.banUser(targetId, reason) },
-                                            onUnbanUser = { targetId -> mainViewModel.unbanUser(targetId) }
+                                            onUnbanUser = { targetId -> mainViewModel.unbanUser(targetId) },
+                                            onFollowHost = { targetId -> mainViewModel.followHost(targetId) },
+                                            onOpenStore = { navController.navigate(ROUTE_STORE) },
+                                            inviteWebUrl = settings.inviteWebUrl,
+                                            onSaveInviteWebUrl = { newUrl ->
+                                                mainViewModel.updateSettings { it.copy(inviteWebUrl = newUrl) }
+                                            }
                                         )
                                         MainTab.FEED -> FeedScreen(
                                             posts = posts,
@@ -374,6 +394,7 @@ private fun AuthenticatedShell(
                                             onDeletePost = { postId -> mainViewModel.deletePost(postId) },
                                             onAssignAppRank = { targetId, rank -> mainViewModel.assignAppRank(targetId, rank) },
                                             onOpenCommunity = { cid -> navController.navigate("voice_room/$cid") },
+                                            onGrantCoins = { targetId, amount -> mainViewModel.grantCoinsToUser(targetId, amount) },
                                             onBanUser = { targetId, reason -> mainViewModel.banUser(targetId, reason) },
                                             onUnbanUser = { targetId -> mainViewModel.unbanUser(targetId) }
                                         )
@@ -384,6 +405,19 @@ private fun AuthenticatedShell(
                                             onPickBottle = { mainViewModel.pickRandomBottle() },
                                             onReplyToBottle = { id, reply -> mainViewModel.replyToBottle(id, reply) },
                                             onDismissPickedBottle = { mainViewModel.clearPickedBottle() }
+                                        )
+                                        MainTab.TASKS -> RewardsTasksScreen(
+                                            user = user,
+                                            mePlusOutcome = mePlusOutcome,
+                                            onClearMePlusOutcome = { mainViewModel.clearMePlusOutcome() },
+                                            onClaimDailyCheckIn = { mainViewModel.claimDailyCheckIn() },
+                                            onClaimDailyTask = { taskId -> mainViewModel.claimDailyTaskReward(taskId) },
+                                            onPlayCoinMiniGame = { bet, reward, msg ->
+                                                mainViewModel.playCoinMiniGame(bet, reward, msg)
+                                            },
+                                            onActivateMePlusAndDraw = { mainViewModel.activateMePlusAndDraw() },
+                                            onClaimFreeCoins = { amount -> mainViewModel.claimFreeCoins(amount) },
+                                            onNavigateToExplore = { activeTab = MainTab.EXPLORE }
                                         )
                                         MainTab.NOTIFICATIONS -> NotificationsScreen(
                                             notifications = notifications,
@@ -407,35 +441,121 @@ private fun AuthenticatedShell(
                                                 mainViewModel.publishStudioFrame(title, primaryHex, secondaryHex, style, thickness, sparkles, equipNow = true, onDone = onDone)
                                             },
                                             onDeleteCustomFrame = { frameId -> mainViewModel.deleteCustomFrame(frameId) },
+                                            onBuyCustomFrame = { frameId -> mainViewModel.buyCustomFrame(frameId) },
                                             onAssignAppRank = { targetId, rank -> mainViewModel.assignAppRank(targetId, rank) },
+                                            onGrantCoins = { targetId, amount -> mainViewModel.grantCoinsToUser(targetId, amount) },
+                                            onOpenStore = { navController.navigate(ROUTE_STORE) },
+                                            onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
                                             onExploreCircles = { activeTab = MainTab.EXPLORE },
                                             onOpenCommunityVoice = { cid -> navController.navigate("voice_room/$cid") },
                                             onBanUser = { targetId, reason -> mainViewModel.banUser(targetId, reason) },
                                             onUnbanUser = { targetId -> mainViewModel.unbanUser(targetId) }
                                         )
-                                        MainTab.SETTINGS -> SettingsScreen(
-                                            user = user,
-                                            allUsers = allUsers,
-                                            settings = settings,
-                                            onUpdateSettings = { mainViewModel.updateSettings(it) },
-                                            onPickAppBackgroundUri = { uri ->
-                                                mainViewModel.saveImageFromUri(uri, "backgrounds", "app_bg") { savedPath ->
-                                                    mainViewModel.updateSettings { it.copy(appBackgroundUri = savedPath) }
-                                                }
-                                            },
-                                            onResetAppBackground = {
-                                                mainViewModel.updateSettings { it.copy(appBackgroundUri = null) }
-                                            },
-                                            onAssignAppRank = { targetId, rank -> mainViewModel.assignAppRank(targetId, rank) },
-                                            onUnlockDeveloperMode = { code, ok, err -> mainViewModel.unlockDeveloperMode(code, ok, err) },
-                                            onBanUser = { targetId, reason -> mainViewModel.banUser(targetId, reason) },
-                                            onUnbanUser = { targetId -> mainViewModel.unbanUser(targetId) },
-                                            onLogout = { mainViewModel.logout() }
-                                        )
                                     }
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            composable(ROUTE_STORE) {
+                TxlBackdrop(
+                    neonGlowEnabled = settings.neonGlowEnabled,
+                    backgroundUri = settings.appBackgroundUri,
+                    backgroundDim = settings.appBackgroundDim
+                ) {
+                    Scaffold(
+                        containerColor = Color.Transparent,
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        snackbarHost = { SnackbarHost(snackbarHostState) }
+                    ) { pad ->
+                        TiendaScreen(
+                            user = user,
+                            allUsers = allUsers,
+                            customFrames = customFrames,
+                            onBack = { navController.popBackStack() },
+                            onBuyFrame = { frameId -> mainViewModel.buyCustomFrame(frameId) },
+                            onEquipFrame = { frameId -> mainViewModel.equipFrame(frameId) },
+                            onToggleFavorite = { frameId -> mainViewModel.toggleFavoriteFrame(frameId) },
+                            onUnlockNextSlotTier = { mainViewModel.unlockNextFrameSlotTier() },
+                            onPublishPngDesign = { title, uri, price, desc, cat, feat, onDone ->
+                                mainViewModel.publishPngFrame(
+                                    title = title,
+                                    uri = uri,
+                                    priceCoins = price,
+                                    description = desc,
+                                    category = cat,
+                                    isFeatured = feat,
+                                    chargeStoreFee = true,
+                                    equipNow = false,
+                                    onDone = onDone
+                                )
+                            },
+                            onPublishStudioDesign = { title, pHex, sHex, style, thick, sparkles, price, desc, cat, feat, onDone ->
+                                mainViewModel.publishStudioFrame(
+                                    title = title,
+                                    primaryColorHex = pHex,
+                                    secondaryColorHex = sHex,
+                                    stylePattern = style,
+                                    thicknessDp = thick,
+                                    hasSparkles = sparkles,
+                                    priceCoins = price,
+                                    description = desc,
+                                    category = cat,
+                                    isFeatured = feat,
+                                    chargeStoreFee = true,
+                                    equipNow = false,
+                                    onDone = onDone
+                                )
+                            },
+                            onDeleteFrame = { frameId -> mainViewModel.deleteCustomFrame(frameId) },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(pad)
+                        )
+                    }
+                }
+            }
+
+            composable(ROUTE_SETTINGS) {
+                TxlBackdrop(
+                    neonGlowEnabled = settings.neonGlowEnabled,
+                    backgroundUri = settings.appBackgroundUri,
+                    backgroundDim = settings.appBackgroundDim
+                ) {
+                    Scaffold(
+                        containerColor = Color.Transparent,
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        snackbarHost = { SnackbarHost(snackbarHostState) }
+                    ) { pad ->
+                        SettingsScreen(
+                            user = user,
+                            allUsers = allUsers,
+                            settings = settings,
+                            onUpdateSettings = { mainViewModel.updateSettings(it) },
+                            onPickAppBackgroundUri = { uri ->
+                                mainViewModel.saveImageFromUri(uri, "backgrounds", "app_bg") { savedPath ->
+                                    mainViewModel.updateSettings { it.copy(appBackgroundUri = savedPath) }
+                                }
+                            },
+                            onResetAppBackground = {
+                                mainViewModel.updateSettings { it.copy(appBackgroundUri = null) }
+                            },
+                            onAssignAppRank = { targetId, rank -> mainViewModel.assignAppRank(targetId, rank) },
+                            onGrantCoins = { targetId, amount -> mainViewModel.grantCoinsToUser(targetId, amount) },
+                            onBanUser = { targetId, reason -> mainViewModel.banUser(targetId, reason) },
+                            onUnbanUser = { targetId -> mainViewModel.unbanUser(targetId) },
+                            onBack = { navController.popBackStack() },
+                            onLogout = performLogout,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(pad)
+                        )
                     }
                 }
             }
@@ -450,11 +570,14 @@ private fun AuthenticatedShell(
                     factory = TxlViewModelFactory(container.repository, currentUserId, communityId)
                 )
                 val roomUser by roomVm.currentUser.collectAsStateWithLifecycle()
+                val roomAllUsers by roomVm.allUsers.collectAsStateWithLifecycle()
                 val community by roomVm.community.collectAsStateWithLifecycle()
                 val participants by roomVm.voiceParticipants.collectAsStateWithLifecycle()
                 val events by roomVm.roomEvents.collectAsStateWithLifecycle()
                 val messages by roomVm.voiceChatMessages.collectAsStateWithLifecycle()
                 val micAmp by roomVm.micAmplitude.collectAsStateWithLifecycle()
+                val remoteSpeakingLevels by roomVm.remoteSpeakingLevels.collectAsStateWithLifecycle()
+                val activeGiftBanner by roomVm.activeGiftBanner.collectAsStateWithLifecycle()
                 val isRecordingVoiceNote by roomVm.isRecordingVoiceNote.collectAsStateWithLifecycle()
                 val recordingElapsedMs by roomVm.recordingElapsedMs.collectAsStateWithLifecycle()
                 val playingAudioMessageId by roomVm.playingAudioMessageId.collectAsStateWithLifecycle()
@@ -510,7 +633,15 @@ private fun AuthenticatedShell(
                     onCancelVoiceNote = { roomVm.cancelVoiceNoteRecording() },
                     onTogglePlayAudio = { msg -> roomVm.togglePlayAudioMessage(msg) },
                     onBanUser = { targetId, reason -> roomVm.banUser(targetId, reason) },
-                    onUnbanUser = { targetId -> roomVm.unbanUser(targetId) }
+                    onUnbanUser = { targetId -> roomVm.unbanUser(targetId) },
+                    currentUser = roomUser,
+                    allUsers = roomAllUsers,
+                    remoteSpeakingLevels = remoteSpeakingLevels,
+                    activeGiftBanner = activeGiftBanner,
+                    onSendGift = { recId, giftId, combo, bagId -> roomVm.sendRoomGift("VOICE", recId, giftId, combo, bagId) },
+                    onClaimFreeCoins = { roomVm.claimFreeCoins(1000) },
+                    onFollowHost = { targetId -> roomVm.followHost(targetId) },
+                    onGrantCoins = { targetId, amount -> roomVm.grantCoinsToUser(targetId, amount) }
                 )
             }
 
@@ -524,8 +655,10 @@ private fun AuthenticatedShell(
                     factory = TxlViewModelFactory(container.repository, currentUserId, communityId)
                 )
                 val roomUser by roomVm.currentUser.collectAsStateWithLifecycle()
+                val roomAllUsers by roomVm.allUsers.collectAsStateWithLifecycle()
                 val community by roomVm.community.collectAsStateWithLifecycle()
                 val messages by roomVm.groupChatMessages.collectAsStateWithLifecycle()
+                val activeGiftBanner by roomVm.activeGiftBanner.collectAsStateWithLifecycle()
                 val isRecordingVoiceNote by roomVm.isRecordingVoiceNote.collectAsStateWithLifecycle()
                 val recordingElapsedMs by roomVm.recordingElapsedMs.collectAsStateWithLifecycle()
                 val playingAudioMessageId by roomVm.playingAudioMessageId.collectAsStateWithLifecycle()
@@ -571,7 +704,15 @@ private fun AuthenticatedShell(
                     onCancelVoiceNote = { roomVm.cancelVoiceNoteRecording() },
                     onTogglePlayAudio = { msg -> roomVm.togglePlayAudioMessage(msg) },
                     onBanUser = { targetId, reason -> roomVm.banUser(targetId, reason) },
-                    onUnbanUser = { targetId -> roomVm.unbanUser(targetId) }
+                    onUnbanUser = { targetId -> roomVm.unbanUser(targetId) },
+                    currentUser = roomUser,
+                    allUsers = roomAllUsers,
+                    activeGiftBanner = activeGiftBanner,
+                    onEnsureSync = { roomVm.ensureGroupSync() },
+                    onSendGift = { recId, giftId, combo, bagId -> roomVm.sendRoomGift("GROUP", recId, giftId, combo, bagId) },
+                    onClaimFreeCoins = { roomVm.claimFreeCoins(1000) },
+                    onFollowHost = { targetId -> roomVm.followHost(targetId) },
+                    onGrantCoins = { targetId, amount -> roomVm.grantCoinsToUser(targetId, amount) }
                 )
             }
         }
@@ -633,7 +774,7 @@ private fun BannedAccountLockoutScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "@$username fue bloqueado por el desarrollador y no puede volver a usar NexoLive hasta que se retire el baneo.",
+                        text = "@$username fue bloqueado por el dueño y no puede volver a usar NexoLive hasta que se retire el baneo.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                         textAlign = TextAlign.Center

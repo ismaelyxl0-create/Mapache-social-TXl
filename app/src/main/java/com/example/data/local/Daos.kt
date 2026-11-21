@@ -4,7 +4,6 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -24,6 +23,9 @@ interface UserDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertUser(user: UserEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertUsers(users: List<UserEntity>)
+
     @Query("UPDATE users SET bio = :bio, customStatus = :status, avatarFrameId = :frameId, avatarUri = :avatarUri, presetAvatarKey = :presetAvatarKey, username = :username WHERE id = :userId")
     suspend fun updateProfileCustomization(
         userId: String,
@@ -38,8 +40,49 @@ interface UserDao {
     @Query("UPDATE users SET postsCount = postsCount + 1 WHERE id = :userId")
     suspend fun incrementPostsCount(userId: String)
 
+    @Query("UPDATE users SET followersCount = followersCount + 1 WHERE id = :userId")
+    suspend fun incrementFollowersCount(userId: String)
+
     @Query("UPDATE users SET communitiesCount = :count WHERE id = :userId")
     suspend fun updateCommunitiesCount(userId: String, count: Int)
+
+    @Query("UPDATE users SET coinsCount = :coins WHERE id = :userId")
+    suspend fun updateCoins(userId: String, coins: Int)
+
+    @Query("UPDATE users SET coinsCount = coinsCount + :delta WHERE id = :userId")
+    suspend fun incrementCoins(userId: String, delta: Int)
+
+    @Query("UPDATE users SET giftsReceivedCount = giftsReceivedCount + 1 WHERE id = :userId")
+    suspend fun incrementGiftsReceived(userId: String)
+
+    @Query("UPDATE users SET coinsCount = :coins, donorExp = :exp, donorLevel = :level, totalCoinsDonated = :totalDonated, giftCoinsSentProgress = :giftCoinsSentProgress, inventoryJson = :inventoryJson WHERE id = :userId")
+    suspend fun updateDonorAndBagProgress(
+        userId: String,
+        coins: Int,
+        exp: Int,
+        level: Int,
+        totalDonated: Int,
+        giftCoinsSentProgress: Int,
+        inventoryJson: String
+    )
+
+    @Query("UPDATE users SET coinsCount = :coins, donorExp = :exp, donorLevel = :level, dailyStreakDay = :streakDay, lastDailyCheckInAtMillis = :checkInMillis, followHostsProgress = :followProg, watchLiveMinutesProgress = :watchProg, gameCoinsEarnedProgress = :gameProg, giftCoinsSentProgress = :giftProg, claimedTaskIds = :claimedIds, inventoryJson = :inventoryJson, mePlusMember = :mePlus, lastMePlusDrawAtMillis = :lastDrawMillis WHERE id = :userId")
+    suspend fun updateRewardsProgression(
+        userId: String,
+        coins: Int,
+        exp: Int,
+        level: Int,
+        streakDay: Int,
+        checkInMillis: Long,
+        followProg: Int,
+        watchProg: Int,
+        gameProg: Int,
+        giftProg: Int,
+        claimedIds: String,
+        inventoryJson: String,
+        mePlus: Boolean,
+        lastDrawMillis: Long
+    )
 
     @Query("UPDATE users SET appRankId = :rankId WHERE id = :userId")
     suspend fun updateAppRank(userId: String, rankId: String)
@@ -58,6 +101,18 @@ interface UserDao {
 
     @Query("UPDATE users SET isBanned = :isBanned, banReason = :banReason WHERE id = :userId")
     suspend fun updateBanStatus(userId: String, isBanned: Boolean, banReason: String?)
+
+    @Query("UPDATE users SET coinsCount = :coins, maxFrameSlots = :maxSlots WHERE id = :userId")
+    suspend fun updateCoinsAndMaxSlots(userId: String, coins: Int, maxSlots: Int)
+
+    @Query("UPDATE users SET favoriteFrameIdsCsv = :favoritesCsv WHERE id = :userId")
+    suspend fun updateFavoriteFrames(userId: String, favoritesCsv: String)
+
+    @Query("UPDATE users SET coinsCount = coinsCount + :coinsDelta, creatorSalesCount = creatorSalesCount + 1, creatorEarningsCoins = creatorEarningsCoins + :earningsDelta WHERE id = :userId")
+    suspend fun recordCreatorSale(userId: String, coinsDelta: Int, earningsDelta: Int)
+
+    @Query("UPDATE users SET creatorSalesCount = creatorSalesCount + 1, creatorEarningsCoins = creatorEarningsCoins + :earningsDelta WHERE id = :userId")
+    suspend fun recordOwnerCreatorSale(userId: String, earningsDelta: Int)
 }
 
 @Dao
@@ -91,6 +146,9 @@ interface CommunityDao {
 
     @Query("DELETE FROM communities WHERE id = :communityId")
     suspend fun deleteCommunityById(communityId: String)
+
+    @Query("DELETE FROM communities WHERE id NOT IN (:activeIds)")
+    suspend fun pruneMissing(activeIds: List<String>)
 }
 
 @Dao
@@ -185,20 +243,32 @@ interface ChatDao {
     @Query("SELECT * FROM chat_messages WHERE id = :messageId LIMIT 1")
     suspend fun getMessageById(messageId: Long): ChatMessageEntity?
 
+    @Query("SELECT * FROM chat_messages WHERE remoteId = :remoteId LIMIT 1")
+    suspend fun getMessageByRemoteId(remoteId: String): ChatMessageEntity?
+
     @Insert
     suspend fun insertMessage(message: ChatMessageEntity)
 
     @Insert
     suspend fun insertMessages(messages: List<ChatMessageEntity>)
 
+    @Query("UPDATE chat_messages SET reactionCount = :reactionCount WHERE remoteId = :remoteId")
+    suspend fun updateReactionByRemoteId(remoteId: String, reactionCount: Int)
+
     @Query("DELETE FROM chat_messages WHERE id = :messageId")
     suspend fun deleteMessage(messageId: Long)
+
+    @Query("DELETE FROM chat_messages WHERE remoteId = :remoteId")
+    suspend fun deleteMessageByRemoteId(remoteId: String)
 
     @Query("UPDATE chat_messages SET reactionCount = reactionCount + 1 WHERE id = :messageId")
     suspend fun incrementReaction(messageId: Long)
 
     @Query("DELETE FROM chat_messages WHERE communityId = :communityId")
     suspend fun deleteAllMessagesForCommunity(communityId: String)
+
+    @Query("DELETE FROM chat_messages WHERE communityId = :communityId AND channelType = :channelType AND remoteId IS NOT NULL")
+    suspend fun deleteRemoteMessages(communityId: String, channelType: String)
 }
 
 @Dao
@@ -233,6 +303,9 @@ interface NotificationDao {
     @Query("SELECT COUNT(*) FROM notifications WHERE userId = :userId AND isRead = 0")
     fun observeUnreadCount(userId: String): Flow<Int>
 
+    @Query("SELECT * FROM notifications WHERE remoteId = :remoteId LIMIT 1")
+    suspend fun getByRemoteId(remoteId: String): NotificationEntity?
+
     @Insert
     suspend fun insertNotification(notification: NotificationEntity)
 
@@ -241,6 +314,9 @@ interface NotificationDao {
 
     @Query("UPDATE notifications SET isRead = 1 WHERE id = :notificationId")
     suspend fun markAsRead(notificationId: Long)
+
+    @Query("UPDATE notifications SET isRead = 1 WHERE remoteId = :remoteId")
+    suspend fun markAsReadByRemoteId(remoteId: String)
 
     @Query("UPDATE notifications SET isRead = 1 WHERE userId = :userId")
     suspend fun markAllAsRead(userId: String)
@@ -257,8 +333,20 @@ interface CustomFrameDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFrame(frame: CustomFrameEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFrames(frames: List<CustomFrameEntity>)
+
     @Query("DELETE FROM custom_frames WHERE id = :id")
     suspend fun deleteFrameById(id: String)
+
+    @Query("UPDATE custom_frames SET salesCount = salesCount + 1 WHERE id = :id")
+    suspend fun incrementSalesCount(id: String)
+
+    @Query("UPDATE custom_frames SET favoriteCount = MAX(0, favoriteCount + :delta) WHERE id = :id")
+    suspend fun adjustFavoriteCount(id: String, delta: Int)
+
+    @Query("SELECT COUNT(*) FROM custom_frames WHERE creatorId = :creatorId")
+    suspend fun countByCreator(creatorId: String): Int
 }
 
 @Dao
@@ -271,6 +359,9 @@ interface PostDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPost(post: PostEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPosts(posts: List<PostEntity>)
 
     @Query("DELETE FROM posts WHERE id = :postId")
     suspend fun deletePost(postId: String)

@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -64,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,6 +85,7 @@ import com.example.ui.components.RoleBadge
 import com.example.ui.components.TxlLogoMark
 import com.example.ui.components.UserProfilePreviewSheet
 import com.example.ui.components.VerifiedRankBadge
+import com.example.ui.components.shareNexoLiveApp
 import com.example.ui.theme.BorderGlow
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.DangerRose
@@ -112,15 +116,22 @@ fun ExploreScreen(
     onCreateCommunity: (name: String, category: String, description: String, coverKey: String, backgroundUri: String?) -> Unit,
     onDeleteCommunity: (String) -> Unit = {},
     onAssignAppRank: (String, AppRank) -> Unit = { _, _ -> },
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> },
     onBanUser: (String, String) -> Unit = { _, _ -> },
     onUnbanUser: (String) -> Unit = {},
+    onFollowHost: (String) -> Unit = {},
+    onOpenStore: () -> Unit = {},
+    inviteWebUrl: String = "",
+    onSaveInviteWebUrl: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var userSearchQuery by rememberSaveable { mutableStateOf("") }
     var showAllUsers by rememberSaveable { mutableStateOf(false) }
     var selectedFilter by rememberSaveable { mutableStateOf("Todas") }
     var showCreateSheet by rememberSaveable { mutableStateOf(false) }
+    var showInviteSheet by rememberSaveable { mutableStateOf(false) }
     var pendingDeleteCommunity by remember { mutableStateOf<Community?>(null) }
     var selectedUserId by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -180,27 +191,58 @@ fun ExploreScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TxlLogoMark(compact = true)
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = SurfaceElevated,
-                            border = BorderStroke(1.dp, NeonPink.copy(alpha = 0.6f))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = CircleShape,
+                                color = SurfaceElevated,
+                                border = BorderStroke(1.dp, NeonPink.copy(alpha = 0.65f)),
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clickable { onOpenStore() }
+                                    .testTag("explore_open_store_button")
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(NeonPink)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "${communities.sumOf { it.activeVoiceCount }} en vivo",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TextPrimary
-                                )
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Filled.Storefront, contentDescription = "Tienda de Creaciones", tint = NeonPink, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = SurfaceElevated,
+                                border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.6f)),
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clickable { showInviteSheet = true }
+                                    .testTag("explore_share_app_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Filled.Share, contentDescription = "Invitar por Web", tint = NeonCyan, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = SurfaceElevated,
+                                border = BorderStroke(1.dp, NeonPink.copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(NeonPink)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${communities.sumOf { it.activeVoiceCount }} en vivo",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextPrimary
+                                    )
+                                }
                             }
                         }
                     }
@@ -479,6 +521,17 @@ fun ExploreScreen(
         )
     }
 
+    if (showInviteSheet) {
+        val currentProfile = allUsers.firstOrNull { it.id == currentUserId }
+        com.example.ui.components.InviteWebSheet(
+            inviterUsername = currentProfile?.username,
+            currentWebUrl = inviteWebUrl,
+            canEditGlobalUrl = currentUserIsDeveloper || currentUserRank == AppRank.OWNER,
+            onSaveWebUrl = onSaveInviteWebUrl,
+            onDismiss = { showInviteSheet = false }
+        )
+    }
+
     selectedUserId?.let { targetId ->
         val targetUser = allUsers.firstOrNull { it.id == targetId }
         if (targetUser != null) {
@@ -491,8 +544,10 @@ fun ExploreScreen(
                 isCurrentUser = targetUser.id == currentUserId,
                 onDismiss = { selectedUserId = null },
                 onAssignAppRank = { rank -> onAssignAppRank(targetUser.id, rank) },
+                onGrantCoins = { amount -> onGrantCoins(targetUser.id, amount) },
                 onBanUser = { reason -> onBanUser(targetUser.id, reason) },
-                onUnbanUser = { onUnbanUser(targetUser.id) }
+                onUnbanUser = { onUnbanUser(targetUser.id) },
+                onFollowUser = { onFollowHost(targetUser.id) }
             )
         }
     }
@@ -542,6 +597,13 @@ private fun UserSearchResultCard(
                         Spacer(modifier = Modifier.width(5.dp))
                         VerifiedRankBadge(rank = user.appRank, size = 16.dp)
                     }
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "${user.donorTier.emoji} Nv.${user.donorTier.level}",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NeonPurpleLight
+                    )
                     if (showModerationStatus && user.isBanned) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Lock
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wallpaper
@@ -87,11 +89,14 @@ import com.example.model.ChatMessage
 import com.example.model.Community
 import com.example.model.CommunityRole
 import com.example.model.RoomEventLog
+import com.example.model.RoomGiftEvent
 import com.example.model.UserProfile
 import com.example.model.VoiceParticipant
 import com.example.ui.components.AudioMessageBubbleContent
 import com.example.ui.components.CommunityCoverImage
 import com.example.ui.components.FramedAvatar
+import com.example.ui.components.GiftCelebrationOverlay
+import com.example.ui.components.GiftGallerySheet
 import com.example.ui.components.GlassCard
 import com.example.ui.components.LiveCameraPreview
 import com.example.ui.components.RoleBadge
@@ -101,6 +106,7 @@ import com.example.ui.components.UserProfilePreviewSheet
 import com.example.ui.components.VerifiedRankBadge
 import com.example.ui.components.formatAudioDuration
 import com.example.ui.components.formatRelativeTime
+import com.example.ui.components.shareNexoLiveApp
 import com.example.ui.theme.BorderGlow
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.DangerRose
@@ -158,7 +164,15 @@ fun VoiceRoomScreen(
     onCancelVoiceNote: () -> Unit = {},
     onTogglePlayAudio: (ChatMessage) -> Unit = {},
     onBanUser: (String, String) -> Unit = { _, _ -> },
-    onUnbanUser: (String) -> Unit = {}
+    onUnbanUser: (String) -> Unit = {},
+    currentUser: UserProfile? = null,
+    allUsers: List<UserProfile> = emptyList(),
+    remoteSpeakingLevels: Map<String, Float> = emptyMap(),
+    activeGiftBanner: RoomGiftEvent? = null,
+    onSendGift: (recipientId: String, giftId: String, comboCount: Int, useBagItemId: String?) -> Unit = { _, _, _, _ -> },
+    onClaimFreeCoins: () -> Unit = {},
+    onFollowHost: (String) -> Unit = {},
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -166,6 +180,7 @@ fun VoiceRoomScreen(
     var selectedUserForSheet by remember { mutableStateOf<Pair<UserProfile, CommunityRole>?>(null) }
     var showRoomAdminSheet by rememberSaveable { mutableStateOf(false) }
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+    var showGiftSheet by rememberSaveable { mutableStateOf(false) }
     var isIrlCameraMode by rememberSaveable { mutableStateOf(false) }
     var useFrontCamera by rememberSaveable { mutableStateOf(true) }
 
@@ -275,6 +290,13 @@ fun VoiceRoomScreen(
                         )
                     }
 
+                    IconButton(
+                        onClick = { shareNexoLiveApp(context, community?.name) },
+                        modifier = Modifier.size(44.dp).testTag("voice_share_room_button")
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = "Compartir sala", tint = NeonCyan)
+                    }
+
                     // Switch to full Group Text Chat
                     Surface(
                         shape = RoundedCornerShape(50),
@@ -382,6 +404,20 @@ fun VoiceRoomScreen(
                                     style = MaterialTheme.typography.labelMedium,
                                     color = TextPrimary
                                 )
+                            }
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = NeonPink.copy(alpha = 0.22f),
+                            border = BorderStroke(1.2.dp, NeonPink),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clickable { showGiftSheet = true }
+                                .testTag("voice_open_gifts_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.CardGiftcard, contentDescription = "Enviar regalo 3D", tint = NeonPink)
                             }
                         }
 
@@ -514,13 +550,16 @@ fun VoiceRoomScreen(
                 }
             }
         ) { innerPadding ->
-            LazyColumn(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(innerPadding)
             ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                 // Live Stream Broadcast Stage (IRL CameraX & Gamer HUD)
                 item {
                     GlassCard(
@@ -719,7 +758,11 @@ fun VoiceRoomScreen(
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 items(participants, key = { it.id }) { vp ->
                                     val isMe = vp.user.id == currentUserId
-                                    val speakingAmp = if (isMe && !vp.isMuted) micAmplitude else if (vp.isSpeaking) 0.55f else 0f
+                                    val remoteRms = remoteSpeakingLevels[vp.user.id] ?: 0f
+                                    val speakingAmp = if (isMe && !vp.isMuted) micAmplitude else if (remoteRms > 0.02f) remoteRms else if (vp.isSpeaking) 0.55f else 0f
+                                    val isCurrentlySpeaking = (isMe && !vp.isMuted && micAmplitude > 0.04f) ||
+                                        (!isMe && remoteRms > 0.04f) ||
+                                        (vp.isSpeaking && !vp.isMuted)
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
@@ -734,7 +777,7 @@ fun VoiceRoomScreen(
                                                 frame = vp.user.avatarFrame,
                                                 frameId = vp.user.avatarFrameId,
                                                 size = 64.dp,
-                                                isSpeaking = vp.isSpeaking && !vp.isMuted,
+                                                isSpeaking = isCurrentlySpeaking,
                                                 speakingAmplitude = speakingAmp,
                                                 contentDescription = vp.user.username
                                             )
@@ -860,7 +903,25 @@ fun VoiceRoomScreen(
                     }
                 }
             }
+            GiftCelebrationOverlay(
+                event = activeGiftBanner,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+            }
         }
+    }
+
+    if (showGiftSheet) {
+        val recipients = remember(participants, allUsers) {
+            (participants.map { it.user } + allUsers).distinctBy { it.id }
+        }
+        GiftGallerySheet(
+            currentUser = currentUser,
+            recipients = recipients,
+            onDismiss = { showGiftSheet = false },
+            onSendGift = onSendGift,
+            onClaimFreeCoins = onClaimFreeCoins
+        )
     }
 
     selectedUserForSheet?.let { (user, role) ->
@@ -879,8 +940,10 @@ fun VoiceRoomScreen(
             onDemoteMember = { onChangeRole(user.id, CommunityRole.MEMBER) },
             onKick = if (vp != null) { { onKickParticipant(user.id) } } else null,
             onAssignAppRank = { rank -> onAssignAppRank(user.id, rank) },
+            onGrantCoins = { amount -> onGrantCoins(user.id, amount) },
             onBanUser = { reason -> onBanUser(user.id, reason) },
-            onUnbanUser = { onUnbanUser(user.id) }
+            onUnbanUser = { onUnbanUser(user.id) },
+            onFollowUser = { onFollowHost(user.id) }
         )
     }
 

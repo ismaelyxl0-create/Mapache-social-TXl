@@ -24,8 +24,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.AlertDialog
@@ -63,10 +65,14 @@ import com.example.model.AppSettings
 import com.example.model.ChatMessage
 import com.example.model.Community
 import com.example.model.CommunityRole
+import com.example.model.RoomGiftEvent
 import com.example.model.UserProfile
+import com.example.ui.components.GiftCelebrationOverlay
+import com.example.ui.components.GiftGallerySheet
 import com.example.ui.components.GroupChatPanel
 import com.example.ui.components.TxlBackdrop
 import com.example.ui.components.UserProfilePreviewSheet
+import com.example.ui.components.shareNexoLiveApp
 import com.example.ui.theme.BorderGlow
 import com.example.ui.theme.DangerRose
 import com.example.ui.theme.NeonCyan
@@ -110,7 +116,15 @@ fun GroupChatScreen(
     onCancelVoiceNote: () -> Unit = {},
     onTogglePlayAudio: (ChatMessage) -> Unit = {},
     onBanUser: (String, String) -> Unit = { _, _ -> },
-    onUnbanUser: (String) -> Unit = {}
+    onUnbanUser: (String) -> Unit = {},
+    currentUser: UserProfile? = null,
+    allUsers: List<UserProfile> = emptyList(),
+    activeGiftBanner: RoomGiftEvent? = null,
+    onEnsureSync: () -> Unit = {},
+    onSendGift: (recipientId: String, giftId: String, comboCount: Int, useBagItemId: String?) -> Unit = { _, _, _, _ -> },
+    onClaimFreeCoins: () -> Unit = {},
+    onFollowHost: (String) -> Unit = {},
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -119,7 +133,12 @@ fun GroupChatScreen(
     var selectedUser by remember { mutableStateOf<Pair<UserProfile, CommunityRole>?>(null) }
     var showRoomSettingsSheet by rememberSaveable { mutableStateOf(false) }
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+    var showGiftSheet by rememberSaveable { mutableStateOf(false) }
     val myRole = community?.myRole ?: CommunityRole.MEMBER
+
+    LaunchedEffect(Unit) {
+        onEnsureSync()
+    }
 
     var hasAudioPermission by remember {
         mutableStateOf(
@@ -201,6 +220,22 @@ fun GroupChatScreen(
                                 color = TextSecondary
                             )
                         }
+                        IconButton(
+                            onClick = { showGiftSheet = true },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("group_open_gifts_button")
+                        ) {
+                            Icon(Icons.Filled.CardGiftcard, contentDescription = "Enviar regalo", tint = NeonPink)
+                        }
+                        IconButton(
+                            onClick = { shareNexoLiveApp(context, community?.name) },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("group_share_room_button")
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = "Compartir sala", tint = NeonCyan)
+                        }
                         Surface(
                             shape = RoundedCornerShape(50),
                             color = NeonPurple.copy(alpha = 0.25f),
@@ -235,40 +270,61 @@ fun GroupChatScreen(
                 }
             }
         ) { innerPadding ->
-            GroupChatPanel(
-                messages = messages,
-                currentUserId = currentUserId,
-                myRole = myRole,
-                showUserStatus = settings.showStatusInChat,
-                inputText = inputText,
-                onInputTextChange = { inputText = it },
-                replyingTo = replyingTo,
-                onSetReplyingTo = { replyingTo = it },
-                onSendMessage = onSendMessage,
-                onReactMessage = onReactMessage,
-                onDeleteMessage = onDeleteMessage,
-                onSelectUser = { user, role -> selectedUser = user to role },
-                headerBannerText = community?.description ?: "Chat grupal del stream IRL & Gamer en tiempo real.",
-                isRecordingVoiceNote = isRecordingVoiceNote,
-                recordingElapsedMs = recordingElapsedMs,
-                playingAudioMessageId = playingAudioMessageId,
-                playingAudioProgress = playingAudioProgress,
-                onRequestStartVoiceNote = {
-                    if (hasAudioPermission) {
-                        onStartVoiceNote(true)
-                    } else {
-                        voiceNotePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                onStopAndSendVoiceNote = onStopAndSendVoiceNote,
-                onCancelVoiceNote = onCancelVoiceNote,
-                onTogglePlayAudio = onTogglePlayAudio,
-                applyBottomInsets = true,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-            )
+            ) {
+                GroupChatPanel(
+                    messages = messages,
+                    currentUserId = currentUserId,
+                    myRole = myRole,
+                    showUserStatus = settings.showStatusInChat,
+                    inputText = inputText,
+                    onInputTextChange = { inputText = it },
+                    replyingTo = replyingTo,
+                    onSetReplyingTo = { replyingTo = it },
+                    onSendMessage = onSendMessage,
+                    onReactMessage = onReactMessage,
+                    onDeleteMessage = onDeleteMessage,
+                    onSelectUser = { user, role -> selectedUser = user to role },
+                    headerBannerText = community?.description ?: "Chat grupal del stream IRL & Gamer en tiempo real.",
+                    isRecordingVoiceNote = isRecordingVoiceNote,
+                    recordingElapsedMs = recordingElapsedMs,
+                    playingAudioMessageId = playingAudioMessageId,
+                    playingAudioProgress = playingAudioProgress,
+                    onRequestStartVoiceNote = {
+                        if (hasAudioPermission) {
+                            onStartVoiceNote(true)
+                        } else {
+                            voiceNotePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    onStopAndSendVoiceNote = onStopAndSendVoiceNote,
+                    onCancelVoiceNote = onCancelVoiceNote,
+                    onTogglePlayAudio = onTogglePlayAudio,
+                    applyBottomInsets = true,
+                    modifier = Modifier.fillMaxSize()
+                )
+                GiftCelebrationOverlay(
+                    event = activeGiftBanner,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            }
         }
+    }
+
+    if (showGiftSheet) {
+        val recipients = remember(messages, allUsers) {
+            (messages.map { it.sender } + allUsers).distinctBy { it.id }
+        }
+        GiftGallerySheet(
+            currentUser = currentUser,
+            recipients = recipients,
+            onDismiss = { showGiftSheet = false },
+            onSendGift = onSendGift,
+            onClaimFreeCoins = onClaimFreeCoins
+        )
     }
 
     selectedUser?.let { (user, role) ->
@@ -283,8 +339,10 @@ fun GroupChatScreen(
             onPromoteCoAdmin = { onPromoteCoAdmin(user.id) },
             onDemoteMember = { onDemoteMember(user.id) },
             onAssignAppRank = { rank -> onAssignAppRank(user.id, rank) },
+            onGrantCoins = { amount -> onGrantCoins(user.id, amount) },
             onBanUser = { reason -> onBanUser(user.id, reason) },
-            onUnbanUser = { onUnbanUser(user.id) }
+            onUnbanUser = { onUnbanUser(user.id) },
+            onFollowUser = { onFollowHost(user.id) }
         )
     }
 

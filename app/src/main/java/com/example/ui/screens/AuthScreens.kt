@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,78 +13,112 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.example.R
 import com.example.ui.components.GlassCard
-import com.example.ui.components.NeonGradientButton
 import com.example.ui.components.TxlBackdrop
 import com.example.ui.components.TxlLogoMark
-import com.example.ui.theme.BorderSubtle
+import com.example.ui.components.shareNexoLiveApp
+import com.example.ui.theme.BorderGlow
 import com.example.ui.theme.DangerRose
+import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.NeonPink
 import com.example.ui.theme.NeonPurple
-import com.example.ui.theme.NeonPurpleLight
-import com.example.ui.theme.SurfaceDark
-import com.example.ui.theme.TextMuted
+import com.example.ui.theme.SurfaceCard
+import com.example.ui.theme.SurfaceElevated
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
     errorMessage: String?,
     isBusy: Boolean,
-    isFirstAccountPending: Boolean,
-    onLoginClick: (String, String) -> Unit,
-    onNavigateToRegister: () -> Unit
+    onGoogleIdToken: (String) -> Unit,
+    onAuthError: (String?) -> Unit,
+    onBusyChange: (Boolean) -> Unit
 ) {
-    var identifier by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var showPassword by rememberSaveable { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+    var attemptedSilent by remember { mutableStateOf(false) }
+
+    // Silent auto sign-in using GetGoogleIdOption only (separate request from interactive button)
+    LaunchedEffect(Unit) {
+        if (attemptedSilent) return@LaunchedEffect
+        attemptedSilent = true
+        val clientId = try {
+            context.getString(R.string.default_web_client_id)
+        } catch (_: Exception) {
+            ""
+        }
+        if (clientId.isBlank()) return@LaunchedEffect
+        try {
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(true)
+                .setServerClientId(clientId)
+                .setAutoSelectEnabled(true)
+                .build()
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+            val cred = credentialManager.getCredential(context, request).credential
+            if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                val idToken = GoogleIdTokenCredential.createFrom(cred.data).idToken
+                onGoogleIdToken(idToken)
+            }
+        } catch (_: Exception) {
+            // Clean fallback to interactive Google Sign-In button below
+        }
+    }
 
     TxlBackdrop {
         Box(
@@ -89,7 +126,6 @@ fun LoginScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .imePadding()
                 .padding(horizontal = 24.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -102,71 +138,63 @@ fun LoginScreen(
                 TxlLogoMark()
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Tu plataforma de directos IRL y Gaming en tiempo real",
+                    text = "Salas de voz y directos globales sin límites de región",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(22.dp)) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text(
-                            text = "Inicia sesión",
+                            text = "Acceso verificado",
                             style = MaterialTheme.typography.headlineMedium,
                             color = TextPrimary,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                            fontWeight = FontWeight.ExtraBold
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Entra a tus streams IRL, salas gamer y chat en vivo",
+                            text = "Cada usuario inicia sesión con su propio correo verificado de Google. Comparte la app con amigos en cualquier país y hablen al instante.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
 
-                        TxlAuthField(
-                            value = identifier,
-                            onValueChange = { identifier = it },
-                            label = "Usuario o correo electrónico",
-                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null, tint = NeonPurpleLight) },
-                            keyboardType = KeyboardType.Email,
-                            imeAction = ImeAction.Next,
-                            onImeAction = { focusManager.moveFocus(FocusDirection.Down) },
-                            testTag = "login_identifier_input"
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        TxlAuthField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = "Contraseña",
-                            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = NeonPurpleLight) },
-                            isPassword = !showPassword,
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done,
-                            onImeAction = {
-                                focusManager.clearFocus()
-                                onLoginClick(identifier, password)
-                            },
-                            trailingIcon = {
-                                IconButton(onClick = { showPassword = !showPassword }) {
-                                    Icon(
-                                        imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                        contentDescription = "Mostrar contraseña",
-                                        tint = TextSecondary
-                                    )
-                                }
-                            },
-                            testTag = "login_password_input"
-                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AuthFeaturePill(
+                                icon = Icons.Filled.Public,
+                                tint = NeonCyan,
+                                text = "Disponible en todo el mundo sin restricciones"
+                            )
+                            AuthFeaturePill(
+                                icon = Icons.Filled.GraphicEq,
+                                tint = NeonPink,
+                                text = "Micrófono multiusuario fluido en salas en vivo"
+                            )
+                            AuthFeaturePill(
+                                icon = Icons.Filled.CardGiftcard,
+                                tint = Color(0xFFFFD166),
+                                text = "Regalos en sala, niveles de donador y tareas diarias"
+                            )
+                            AuthFeaturePill(
+                                icon = Icons.Filled.VerifiedUser,
+                                tint = NeonPurple,
+                                text = "Cuenta propia y segura: nadie accede a la cuenta del dueño"
+                            )
+                        }
 
                         if (!errorMessage.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
                             Surface(
                                 color = DangerRose.copy(alpha = 0.16f),
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, DangerRose.copy(alpha = 0.5f))
+                                border = BorderStroke(1.dp, DangerRose.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
                                     text = errorMessage,
@@ -177,52 +205,119 @@ fun LoginScreen(
                             }
                         }
 
-                        if (isFirstAccountPending) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Surface(
-                                color = NeonPurple.copy(alpha = 0.16f),
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, NeonPurple.copy(alpha = 0.45f))
-                            ) {
-                                Text(
-                                    text = "Sin bots ni cuentas falsas. Crea tu cuenta para transmitir en vivo IRL o Gaming en NexoLive.",
-                                    color = TextPrimary,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(22.dp))
-                        NeonGradientButton(
-                            text = if (isBusy) "Conectando..." else "Iniciar sesión",
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Button(
+                            onClick = {
+                                val clientId = try {
+                                    context.getString(R.string.default_web_client_id)
+                                } catch (_: Exception) {
+                                    onAuthError("Configuración de Google Sign-In no encontrada en la compilación.")
+                                    return@Button
+                                }
+                                onAuthError(null)
+                                onBusyChange(true)
+                                scope.launch {
+                                    try {
+                                        val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
+                                        val request = GetCredentialRequest.Builder()
+                                            .addCredentialOption(signInOption)
+                                            .build()
+                                        val hostContext = context.findActivity() ?: context
+                                        val cred = credentialManager.getCredential(hostContext, request).credential
+                                        if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                                            val idToken = GoogleIdTokenCredential.createFrom(cred.data).idToken
+                                            onGoogleIdToken(idToken)
+                                        } else {
+                                            onBusyChange(false)
+                                            onAuthError("Credencial de Google no reconocida.")
+                                        }
+                                    } catch (e: GetCredentialCancellationException) {
+                                        Log.w("Auth", "Google Sign-In cancelled or dismissed: ${e.message}", e)
+                                        onBusyChange(false)
+                                    } catch (e: Exception) {
+                                        Log.e("Auth", "Google Sign-In failed", e)
+                                        onBusyChange(false)
+                                        onAuthError(e.localizedMessage ?: "No se pudo iniciar sesión con Google.")
+                                    }
+                                }
+                            },
                             enabled = !isBusy,
-                            onClick = { onLoginClick(identifier, password) },
-                            modifier = Modifier.fillMaxWidth(),
-                            testTag = "login_submit_button"
-                        )
-
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                                .testTag("google_signin_button")
                         ) {
-                            Text(
-                                text = "¿No tienes cuenta?",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary
-                            )
-                            TextButton(
-                                onClick = onNavigateToRegister,
-                                modifier = Modifier.testTag("go_to_register_button")
+                            Surface(
+                                shape = RoundedCornerShape(24.dp),
+                                color = Color.Transparent,
+                                modifier = Modifier.fillMaxSize()
                             ) {
-                                Text(
-                                    text = "Crear cuenta nueva",
-                                    color = NeonPink,
-                                    fontWeight = FontWeight.Bold,
-                                    textDecoration = TextDecoration.Underline
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .let { m ->
+                                            m
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(24.dp),
+                                        color = if (isBusy) SurfaceElevated else Color.White,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (isBusy) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(22.dp),
+                                                    color = NeonPink,
+                                                    strokeWidth = 2.5.dp
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = "Verificando correo...",
+                                                    color = TextPrimary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = "G",
+                                                    fontSize = 19.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = Color(0xFF4285F4)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = "Continuar con Google",
+                                                    color = Color(0xFF1F1936),
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 15.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = { shareNexoLiveApp(context) },
+                            shape = RoundedCornerShape(24.dp),
+                            border = BorderStroke(1.dp, Brush.horizontalGradient(listOf(NeonCyan, NeonPink))),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("auth_share_app_button")
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Compartir NexoLive con amigos", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -232,251 +327,30 @@ fun LoginScreen(
 }
 
 @Composable
-fun RegisterScreen(
-    errorMessage: String?,
-    isBusy: Boolean,
-    isFirstAccountPending: Boolean,
-    onRegisterClick: (String, String, String, String, Boolean) -> Unit,
-    onBackToLogin: () -> Unit
+private fun AuthFeaturePill(
+    icon: ImageVector,
+    tint: Color,
+    text: String
 ) {
-    var username by rememberSaveable { mutableStateOf("") }
-    var email by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var confirmPassword by rememberSaveable { mutableStateOf("") }
-    var showPassword by rememberSaveable { mutableStateOf(false) }
-    var acceptedTerms by rememberSaveable { mutableStateOf(true) }
-    val focusManager = LocalFocusManager.current
-
-    TxlBackdrop {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = SurfaceCard.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, BorderGlow.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onBackToLogin,
-                    modifier = Modifier.size(48.dp).testTag("register_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Volver a inicio de sesión",
-                        tint = TextPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                TxlLogoMark(compact = true)
-                Spacer(modifier = Modifier.weight(1f))
-                Spacer(modifier = Modifier.size(48.dp))
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            GlassCard(modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
-                Column(modifier = Modifier.padding(22.dp)) {
-                    Text(
-                        text = "Crea tu cuenta",
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = TextPrimary,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Crea tu canal y transmite en vivo IRL o Gamer",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
-                    Spacer(modifier = Modifier.height(22.dp))
-
-                    TxlAuthField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = "Nombre de usuario",
-                        leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null, tint = NeonPurpleLight) },
-                        imeAction = ImeAction.Next,
-                        onImeAction = { focusManager.moveFocus(FocusDirection.Down) },
-                        testTag = "register_username_input"
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TxlAuthField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = "Correo electrónico",
-                        leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null, tint = NeonPurpleLight) },
-                        keyboardType = KeyboardType.Email,
-                        imeAction = ImeAction.Next,
-                        onImeAction = { focusManager.moveFocus(FocusDirection.Down) },
-                        testTag = "register_email_input"
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TxlAuthField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = "Contraseña (mín. 6 caracteres)",
-                        leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = NeonPurpleLight) },
-                        isPassword = !showPassword,
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Next,
-                        onImeAction = { focusManager.moveFocus(FocusDirection.Down) },
-                        trailingIcon = {
-                            IconButton(onClick = { showPassword = !showPassword }) {
-                                Icon(
-                                    imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                    contentDescription = "Mostrar contraseña",
-                                    tint = TextSecondary
-                                )
-                            }
-                        },
-                        testTag = "register_password_input"
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TxlAuthField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it },
-                        label = "Confirmar contraseña",
-                        leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null, tint = NeonPurpleLight) },
-                        isPassword = !showPassword,
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                        onImeAction = {
-                            focusManager.clearFocus()
-                            onRegisterClick(username, email, password, confirmPassword, acceptedTerms)
-                        },
-                        testTag = "register_confirm_input"
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { acceptedTerms = !acceptedTerms },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = acceptedTerms,
-                            onCheckedChange = { acceptedTerms = it },
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = NeonPurple,
-                                checkmarkColor = TextPrimary,
-                                uncheckedColor = TextSecondary
-                            ),
-                            modifier = Modifier.testTag("register_terms_checkbox")
-                        )
-                        Text(
-                            text = "Acepto los términos y condiciones",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextPrimary
-                        )
-                    }
-
-                    if (!errorMessage.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            color = DangerRose.copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, DangerRose.copy(alpha = 0.5f))
-                        ) {
-                            Text(
-                                text = errorMessage,
-                                color = DangerRose,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-                    NeonGradientButton(
-                        text = if (isBusy) "Creando cuenta..." else "Registrarse",
-                        enabled = !isBusy,
-                        onClick = { onRegisterClick(username, email, password, confirmPassword, acceptedTerms) },
-                        modifier = Modifier.fillMaxWidth(),
-                        testTag = "register_submit_button"
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "¿Ya tienes cuenta?",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                        TextButton(
-                            onClick = onBackToLogin,
-                            modifier = Modifier.testTag("go_to_login_button")
-                        ) {
-                            Text(
-                                text = "Inicia sesión",
-                                color = NeonPurpleLight,
-                                fontWeight = FontWeight.Bold,
-                                textDecoration = TextDecoration.Underline
-                            )
-                        }
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(text = text, fontSize = 12.sp, color = TextPrimary)
         }
     }
 }
 
-@Composable
-private fun TxlAuthField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    leadingIcon: @Composable (() -> Unit)? = null,
-    trailingIcon: @Composable (() -> Unit)? = null,
-    isPassword: Boolean = false,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    imeAction: ImeAction = ImeAction.Next,
-    onImeAction: () -> Unit = {},
-    testTag: String = ""
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        leadingIcon = leadingIcon,
-        trailingIcon = trailingIcon,
-        singleLine = true,
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = keyboardType,
-            imeAction = imeAction,
-            autoCorrectEnabled = false
-        ),
-        keyboardActions = KeyboardActions(
-            onNext = { onImeAction() },
-            onDone = { onImeAction() }
-        ),
-        shape = RoundedCornerShape(18.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = NeonPink,
-            unfocusedBorderColor = BorderSubtle,
-            focusedContainerColor = SurfaceDark.copy(alpha = 0.7f),
-            unfocusedContainerColor = SurfaceDark.copy(alpha = 0.5f),
-            focusedTextColor = TextPrimary,
-            unfocusedTextColor = TextPrimary,
-            focusedLabelColor = NeonPink,
-            unfocusedLabelColor = TextMuted
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
-    )
+tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

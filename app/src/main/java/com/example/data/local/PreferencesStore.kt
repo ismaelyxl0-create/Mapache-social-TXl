@@ -26,6 +26,7 @@ class PreferencesStore(private val context: Context) {
         val LANGUAGE_LABEL = stringPreferencesKey("language_label")
         val APP_BG_URI = stringPreferencesKey("app_bg_uri")
         val APP_BG_DIM = floatPreferencesKey("app_bg_dim")
+        val INVITE_WEB_URL = stringPreferencesKey("invite_web_url")
     }
 
     val currentUserId: Flow<String?> = context.txlDataStore.data.map { prefs ->
@@ -41,7 +42,8 @@ class PreferencesStore(private val context: Context) {
             privateProfileMode = prefs[Keys.PRIVATE_PROFILE] ?: false,
             languageLabel = prefs[Keys.LANGUAGE_LABEL] ?: "Español (ES)",
             appBackgroundUri = prefs[Keys.APP_BG_URI],
-            appBackgroundDim = prefs[Keys.APP_BG_DIM] ?: 0.62f
+            appBackgroundDim = prefs[Keys.APP_BG_DIM] ?: 0.62f,
+            inviteWebUrl = prefs[Keys.INVITE_WEB_URL] ?: ""
         )
     }
 
@@ -65,7 +67,8 @@ class PreferencesStore(private val context: Context) {
                 privateProfileMode = prefs[Keys.PRIVATE_PROFILE] ?: false,
                 languageLabel = prefs[Keys.LANGUAGE_LABEL] ?: "Español (ES)",
                 appBackgroundUri = prefs[Keys.APP_BG_URI],
-                appBackgroundDim = prefs[Keys.APP_BG_DIM] ?: 0.62f
+                appBackgroundDim = prefs[Keys.APP_BG_DIM] ?: 0.62f,
+                inviteWebUrl = prefs[Keys.INVITE_WEB_URL] ?: ""
             )
             val next = transform(current)
             prefs[Keys.NEON_GLOW] = next.neonGlowEnabled
@@ -80,6 +83,11 @@ class PreferencesStore(private val context: Context) {
                 prefs[Keys.APP_BG_URI] = next.appBackgroundUri
             }
             prefs[Keys.APP_BG_DIM] = next.appBackgroundDim.coerceIn(0.15f, 0.9f)
+            if (next.inviteWebUrl.isBlank()) {
+                prefs.remove(Keys.INVITE_WEB_URL)
+            } else {
+                prefs[Keys.INVITE_WEB_URL] = next.inviteWebUrl.trim()
+            }
         }
     }
 }

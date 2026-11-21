@@ -111,6 +111,7 @@ fun FeedScreen(
     onDeletePost: (String) -> Unit,
     onAssignAppRank: (String, AppRank) -> Unit,
     onOpenCommunity: (String) -> Unit,
+    onGrantCoins: (targetUserId: String, amount: Int) -> Unit = { _, _ -> },
     onBanUser: (String, String) -> Unit = { _, _ -> },
     onUnbanUser: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -441,6 +442,7 @@ fun FeedScreen(
             isCurrentUser = author.id == currentUserId,
             onDismiss = { selectedAuthor = null },
             onAssignAppRank = { rank -> onAssignAppRank(author.id, rank) },
+            onGrantCoins = { amount -> onGrantCoins(author.id, amount) },
             onBanUser = { reason -> onBanUser(author.id, reason) },
             onUnbanUser = { onUnbanUser(author.id) }
         )

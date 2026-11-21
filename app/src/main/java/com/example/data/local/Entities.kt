@@ -8,6 +8,7 @@ data class UserEntity(
     @PrimaryKey val id: String,
     val username: String,
     val email: String,
+    val emailVerified: Boolean = false,
     val passwordHash: String,
     val bio: String,
     val customStatus: String,
@@ -17,6 +18,25 @@ data class UserEntity(
     val communitiesCount: Int,
     val followersCount: Int,
     val postsCount: Int,
+    val coinsCount: Int = 100,
+    val giftsReceivedCount: Int = 0,
+    val donorExp: Int = 0,
+    val donorLevel: Int = 1,
+    val totalCoinsDonated: Int = 0,
+    val dailyStreakDay: Int = 0,
+    val lastDailyCheckInAtMillis: Long = 0L,
+    val followHostsProgress: Int = 0,
+    val watchLiveMinutesProgress: Int = 0,
+    val gameCoinsEarnedProgress: Int = 0,
+    val giftCoinsSentProgress: Int = 0,
+    val claimedTaskIds: String = "",
+    val inventoryJson: String = "{}",
+    val mePlusMember: Boolean = false,
+    val lastMePlusDrawAtMillis: Long = 0L,
+    val maxFrameSlots: Int = 10,
+    val creatorSalesCount: Int = 0,
+    val creatorEarningsCoins: Int = 0,
+    val favoriteFrameIdsCsv: String = "",
     val appRankId: String = "none",
     val isDeveloper: Boolean = false,
     val isBanned: Boolean = false,
@@ -78,7 +98,9 @@ data class ChatMessageEntity(
     val reactionCount: Int = 0,
     val timestampMillis: Long,
     val audioUri: String? = null,
-    val audioDurationMs: Long = 0L
+    val audioDataB64: String? = null,
+    val audioDurationMs: Long = 0L,
+    val remoteId: String? = null
 )
 
 @Entity(tableName = "drifting_bottles")
@@ -107,7 +129,8 @@ data class NotificationEntity(
     val category: String,
     val targetCommunityId: String?,
     val isRead: Boolean,
-    val timestampMillis: Long
+    val timestampMillis: Long,
+    val remoteId: String? = null
 )
 
 @Entity(tableName = "custom_frames")
@@ -123,6 +146,12 @@ data class CustomFrameEntity(
     val stylePatternId: String,
     val thicknessDp: Float,
     val hasSparkles: Boolean,
+    val priceCoins: Int = 0,
+    val description: String = "",
+    val category: String = "Marco de perfil",
+    val isFeatured: Boolean = false,
+    val salesCount: Int = 0,
+    val favoriteCount: Int = 0,
     val createdAtMillis: Long
 )
 
